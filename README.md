@@ -169,6 +169,19 @@ Mantenha `*.jks` fora do Git. Use Secrets e restaure em CI:
 - `RSA 2048` fixo no `keytool`; `validity` e `dname` são configuráveis.
 - Requer `android/` já existente (`npx cap add android`).
 
+## Para LLMs e agentes
+
+Orientações para agentes automatizados que trabalham neste repositório:
+
+- Leia `AGENTS.md` antes de alterar qualquer arquivo.
+- Entenda que o projeto é uma **CLI Node.js ESM** (`"type": "module"`) para gerar **APK assinado** em projetos Capacitor (Android).
+- Use `package.json`, `bin/apk.js` e `src/*.js` como fontes de verdade; não assuma comportamentos fora desses arquivos.
+- Não invente suporte a **AAB**, **Kotlin DSL** (`build.gradle.kts`), novas funcionalidades ou testes — apenas o que está implementado.
+- Preserve os aliases `apk`, `cap-apk`, `cap-release-apk` e o comportamento idempotente do patch em `android/app/build.gradle` e do `.gitignore`, salvo solicitação explícita.
+- Mantenha alterações focadas no escopo solicitado e, quando a documentação mudar, atualize `README.md`, `README.en.md` e `README.es.md` de forma consistente.
+- Após alterações, execute `npm test` (`node --test`) e valide os links relativos dos READMEs (`./README.md`, `./README.en.md`, `./README.es.md`, `./LICENSE`).
+- Nunca exponha ou commite `*.jks`, `*.keystore`, `android/keystore.properties` ou senhas — versione apenas `android/keystore.properties.example` com `***`.
+
 ## Licença
 
 MIT — veja [LICENSE](./LICENSE).
