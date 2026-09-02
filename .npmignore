@@ -1,0 +1,7 @@
+# npm pack usa o campo "files" do package.json (bin/, src/, template/)
+# Nenhum ignore adicional necessário — este arquivo garante que .gitignore não afete o pacote
+# Mantido vazio para não excluir bin/src/template
+
+!bin/
+!src/
+!template/

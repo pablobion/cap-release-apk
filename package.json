@@ -1,0 +1,34 @@
+{
+  "name": "cap-release-apk",
+  "version": "0.1.0",
+  "description": "CapReleaseAPK — CLI para gerar APK assinado em projetos Capacitor com um comando - perguntas interativas + build",
+  "type": "module",
+  "bin": {
+    "apk": "./bin/apk.js",
+    "cap-apk": "./bin/apk.js",
+    "cap-release-apk": "./bin/apk.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "capacitor",
+    "apk",
+    "android",
+    "signing",
+    "cli"
+  ],
+  "dependencies": {
+    "@clack/prompts": "^0.8.0",
+    "commander": "^12.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "template/"
+  ],
+  "license": "MIT"
+}
