@@ -370,27 +370,38 @@ export async function init(opts = {}) {
     p.log.warn(`Não foi possível atualizar .gitignore da raiz: ${e.message}`);
   }
 
-  // Patch package.json host: script "apk"
+  // Patch package.json host: scripts "apk" e "aab"
   try {
     const { pkg, pkgPath } = getPackageJson(projectRoot);
     if (pkg && pkgPath) {
       if (!pkg.scripts) pkg.scripts = {};
+      let changed = false;
       if (!pkg.scripts.apk) {
         pkg.scripts.apk = 'cap-release-apk build';
-        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        changed = true;
         p.log.success('Script "apk" adicionado ao package.json: "cap-release-apk build"');
       } else {
         p.log.info(`Script "apk" já existe em package.json: "${pkg.scripts.apk}" — mantido`);
       }
+      if (!pkg.scripts.aab) {
+        pkg.scripts.aab = 'cap-release-apk build --aab';
+        changed = true;
+        p.log.success('Script "aab" adicionado ao package.json: "cap-release-apk build --aab"');
+      } else {
+        p.log.info(`Script "aab" já existe em package.json: "${pkg.scripts.aab}" — mantido`);
+      }
+      if (changed) {
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+      }
     } else {
-      p.log.warn('package.json não encontrado — pulei adição do script apk');
+      p.log.warn('package.json não encontrado — pulei adição dos scripts apk/aab');
     }
   } catch (e) {
     p.log.warn(`Não foi possível atualizar package.json: ${e.message}`);
   }
 
   p.note(
-    `1. Confira android/keystore.properties\n2. Rode: npm run apk  ou  npx cap-release-apk build\n3. APK em: android/app/build/outputs/apk/release/app-release.apk`,
+    `1. Confira android/keystore.properties\n2. Rode: npm run apk  ou  npm run aab  (ou  npx cap-release-apk build [--aab])\n3. APK em: android/app/build/outputs/apk/release/app-release.apk + cap-apk-outputs/\n4. AAB em: android/app/build/outputs/bundle/release/app-release.aab + cap-apk-outputs/`,
     'Próximos passos'
   );
 

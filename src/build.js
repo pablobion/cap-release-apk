@@ -24,14 +24,17 @@ function combinedOutput(res) {
 export async function build(opts = {}) {
   const debug = Boolean(opts.debug);
   const verbose = Boolean(opts.verbose);
+  const isAab = Boolean(opts.aab || opts.bundle);
 
-  const modeLabel = debug ? 'debug (APK)' : 'release (APK)';
-  const gradleTask = debug ? 'assembleDebug' : 'assembleRelease';
+  const modeLabel = isAab ? (debug ? 'debug (AAB)' : 'release (AAB)') : (debug ? 'debug (APK)' : 'release (APK)');
+  const gradleTask = isAab ? (debug ? 'bundleDebug' : 'bundleRelease') : (debug ? 'assembleDebug' : 'assembleRelease');
   const gradleTasks = [gradleTask];
-  const expectedRel = debug ? 'app/build/outputs/apk/debug/app-debug.apk' : 'app/build/outputs/apk/release/app-release.apk';
-  const expectedOutDir = 'dist-apk';
-  const expectedOutFile = debug ? 'app-debug.apk' : 'app-release.apk';
-  const artifactLabel = debug ? 'APK debug' : 'APK release';
+  const expectedRel = isAab
+    ? (debug ? 'app/build/outputs/bundle/debug/app-debug.aab' : 'app/build/outputs/bundle/release/app-release.aab')
+    : (debug ? 'app/build/outputs/apk/debug/app-debug.apk' : 'app/build/outputs/apk/release/app-release.apk');
+  const expectedOutDir = 'cap-apk-outputs';
+  const expectedOutFile = isAab ? (debug ? 'app-debug.aab' : 'app-release.aab') : (debug ? 'app-debug.apk' : 'app-release.apk');
+  const artifactLabel = isAab ? (debug ? 'AAB debug' : 'AAB release') : (debug ? 'APK debug' : 'APK release');
 
   p.intro(`CapReleaseAPK build ${modeLabel}`);
 

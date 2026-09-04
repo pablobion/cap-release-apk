@@ -2,11 +2,13 @@
 
 [English](./README.en.md) | [Español](./README.es.md)
 
-CLI para gerar **APK assinado** em projetos Capacitor com um único comando — perguntas interativas + build.
+CLI para gerar **APK e AAB assinados** em projetos Capacitor com um único comando — perguntas interativas + build.
 
 ```bash
 npx cap-release-apk init   # configura keystore e patch do Gradle (interativo)
 npx cap-release-apk build  # npm run build + cap sync + gradlew assembleRelease
+npm run apk                # = cap-release-apk build (APK em cap-apk-outputs/)
+npm run aab                # = cap-release-apk build --aab (AAB em cap-apk-outputs/)
 ```
 
 Funciona em qualquer projeto Capacitor com `android/` no Windows, macOS e Linux.
@@ -20,10 +22,10 @@ Automatiza o fluxo manual de assinatura:
 3. Cria `android/keystore.properties.example` (sem senhas, pode commitar)
 4. Aplica patch idempotente em `android/app/build.gradle` para `signingConfigs.release`
 5. Atualiza `.gitignore` (raiz e `android/`) com `*.jks`, `*.keystore`, `keystore.properties`
-6. Adiciona `scripts.apk = "cap-release-apk build"` no `package.json` do projeto host
-7. No `build`, roda `npm run build` (se existir) → `npx cap sync android` → `gradlew assembleRelease` → copia APK para `dist-apk/`
+6. Adiciona `scripts.apk = "cap-release-apk build"` e `scripts.aab = "cap-release-apk build --aab"` no `package.json` do projeto host
+7. No `build`, roda `npm run build` (se existir) → `npx cap sync android` → `gradlew assembleRelease` (APK → `cap-apk-outputs/`) ou `gradlew bundleRelease` com `--aab`/`--bundle` (AAB → `cap-apk-outputs/`)
 
-No primeiro uso faz perguntas interativas (`@clack/prompts`); depois, um comando gera o APK novamente.
+No primeiro uso faz perguntas interativas (`@clack/prompts`); depois, um comando gera o APK ou AAB novamente.
 
 ## Requisitos
 
@@ -75,7 +77,7 @@ Comportamento do `init`:
 - Se `storeFile` estiver dentro de `android/app/`, grava só o filename em `keystore.properties`; caso contrário, grava caminho relativo a `android/` (ex.: `../my-keystore.jks`) ou absoluto se fora do projeto. O `build.gradle` resolve via `rootProject.file()` com fallback `file()` para bare filename.
 - Patch idempotente em `android/app/build.gradle`: injeta loader de `keystore.properties` antes de `android {`, bloco `signingConfigs.release` e `signingConfig signingConfigs.release` em `buildTypes.release`.
 - Atualiza `.gitignore` (descomenta se estiver como `# *.jks`).
-- Não sobrescreve `scripts.apk` se já existir.
+- Não sobrescreve `scripts.apk` nem `scripts.aab` se já existirem.
 
 #### Modo não-interativo (`--yes` / CI)
 
@@ -93,16 +95,31 @@ Com `--yes` também lê variáveis de ambiente:
 
 Se `keystore.properties` já existir, `--yes` reaproveita valores válidos como defaults.
 
-### 2. Gerar APK — `npx cap-release-apk build`
+### 2. Gerar APK ou AAB — `npx cap-release-apk build`
+
+| Comando | O que faz | Saída |
+|---|---|---|
+| `npx cap-release-apk init` | configura keystore + patch Gradle | `android/keystore.properties` |
+| `npx cap-release-apk build` | gera APK release assinado | `android/app/build/outputs/apk/release/` + `cap-apk-outputs/` |
+| `npx cap-release-apk build --aab` (ou `--bundle`) | gera AAB release assinado | `android/app/build/outputs/bundle/release/` + `cap-apk-outputs/` |
+| `npx cap-release-apk doctor` | diagnostica ambiente/config | relatório no terminal |
+| `npm run apk` | atalho para `cap-release-apk build` | mesmo que APK acima |
+| `npm run aab` | atalho para `cap-release-apk build --aab` | mesmo que AAB acima |
 
 ```bash
 npx cap-release-apk build          # release → assembleRelease (requer keystore.properties)
+npx cap-release-apk build --aab    # release → bundleRelease (requer keystore.properties)
 npx cap-release-apk build --debug  # debug → assembleDebug (não exige keystore)
+npx cap-release-apk build --aab --debug # debug → bundleDebug (não exige keystore)
 npx cap-release-apk build --verbose # mostra saída completa do Gradle
 
-# via script criado pelo init
+# via scripts criados pelo init (flags passam com --)
 npm run apk
 npm run apk -- --debug
+npm run apk -- --verbose
+npm run aab
+npm run aab -- --debug
+npm run aab -- --verbose
 ```
 
 Etapas:
@@ -110,8 +127,8 @@ Etapas:
 1. Checagens (`java`, `keystore.properties` quando release, `gradlew`, `build.gradle`)
 2. `npm run build` (se houver `scripts.build`)
 3. `npx cap sync android` (fallback `npx cap sync`)
-4. `gradlew assembleRelease` (`gradlew.bat` no Windows) com timeout de 300s
-5. Localiza `android/app/build/outputs/apk/release/app-release.apk` (ou `debug/app-debug.apk`), exibe tamanho e copia para `dist-apk/`
+4. `gradlew assembleRelease` ou `gradlew bundleRelease` com `--aab` (`gradlew.bat` no Windows) com timeout de 300s
+5. Localiza `android/app/build/outputs/apk/release/app-release.apk` (ou `debug/app-debug.apk`) ou `android/app/build/outputs/bundle/release/app-release.aab` (ou `debug/app-debug.aab`), exibe tamanho e copia para `cap-apk-outputs/`
 
 ### 3. Diagnóstico — `npx cap-release-apk doctor`
 
@@ -164,7 +181,7 @@ Mantenha `*.jks` fora do Git. Use Secrets e restaure em CI:
 
 ## Limitações
 
-- Gera apenas **APK** (`assembleRelease` / `assembleDebug`). Sem suporte a AAB.
+- Gera **APK** (`assembleRelease` / `assembleDebug`) e **AAB** (`bundleRelease` / `bundleDebug` com `--aab`/`--bundle`).
 - Suporta apenas **Groovy DSL** (`android/app/build.gradle`). Não há suporte a Kotlin DSL (`build.gradle.kts`).
 - `RSA 2048` fixo no `keytool`; `validity` e `dname` são configuráveis.
 - Requer `android/` já existente (`npx cap add android`).
@@ -174,9 +191,9 @@ Mantenha `*.jks` fora do Git. Use Secrets e restaure em CI:
 Orientações para agentes automatizados que trabalham neste repositório:
 
 - Leia `AGENTS.md` antes de alterar qualquer arquivo.
-- Entenda que o projeto é uma **CLI Node.js ESM** (`"type": "module"`) para gerar **APK assinado** em projetos Capacitor (Android).
+- Entenda que o projeto é uma **CLI Node.js ESM** (`"type": "module"`) para gerar **APK e AAB assinados** em projetos Capacitor (Android).
 - Use `package.json`, `bin/apk.js` e `src/*.js` como fontes de verdade; não assuma comportamentos fora desses arquivos.
-- Não invente suporte a **AAB**, **Kotlin DSL** (`build.gradle.kts`), novas funcionalidades ou testes — apenas o que está implementado.
+- Não invente suporte a **Kotlin DSL** (`build.gradle.kts`), novas funcionalidades ou testes — apenas o que está implementado.
 - Preserve os aliases `apk`, `cap-apk`, `cap-release-apk` e o comportamento idempotente do patch em `android/app/build.gradle` e do `.gitignore`, salvo solicitação explícita.
 - Mantenha alterações focadas no escopo solicitado e, quando a documentação mudar, atualize `README.md`, `README.en.md` e `README.es.md` de forma consistente.
 - Após alterações, execute `npm test` (`node --test`) e valide os links relativos dos READMEs (`./README.md`, `./README.en.md`, `./README.es.md`, `./LICENSE`).

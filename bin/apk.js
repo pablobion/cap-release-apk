@@ -32,8 +32,10 @@ program
 
 program
   .command('build')
-  .description('Gera APK assinado (release) ou debug')
-  .option('--debug', 'gera APK debug (assembleDebug); não exige keystore')
+  .description('Gera APK ou AAB assinado (release) ou debug')
+  .option('--aab', 'gera AAB assinado (bundleRelease) em vez de APK')
+  .option('--bundle', 'alias de --aab: gera AAB assinado (bundleRelease) em vez de APK')
+  .option('--debug', 'gera APK/AAB debug (assembleDebug/bundleDebug); não exige keystore')
   .option('--verbose', 'mostra saída completa do Gradle (útil para debug)')
   .action(async (opts) => {
     try {
