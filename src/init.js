@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as p from '@clack/prompts';
-import { findProjectRoot, fileExists, ensureGitignore, getPackageJson, resolveKeystorePath, getStoreFileForProperties, findKeystoreFile } from './utils.js';
+import { findProjectRoot, fileExists, ensureGitignore, getPackageJson, resolveKeystorePath, getStoreFileForProperties, findKeystoreFile, findAndroidSdk } from './utils.js';
 import { patchGradle } from './patch-gradle.js';
 
 function isCancel(value) {
@@ -132,32 +132,63 @@ export async function init(opts = {}) {
       keyAliasInput = v.trim() || defaultAlias;
     }
 
-    // storePassword
+    // storePassword + confirmação (repete ambos até coincidirem)
     if (!storePasswordInput) {
-      const v = await p.password({
-        message: 'Senha do keystore (storePassword) — mínimo 6 caracteres:',
-        validate: (val) => {
-          if (!val || val.length < 6) return 'Senha deve ter pelo menos 6 caracteres';
-          return undefined;
-        },
-      });
-      if (isCancel(v)) { p.cancel('Operação cancelada.'); return; }
-      storePasswordInput = v;
+      for (;;) {
+        const v = await p.password({
+          message: 'Senha do keystore (storePassword) — mínimo 6 caracteres:',
+          validate: (val) => {
+            if (!val || val.length < 6) return 'Senha deve ter pelo menos 6 caracteres';
+            return undefined;
+          },
+        });
+        if (isCancel(v)) { p.cancel('Operação cancelada.'); return; }
+        const c = await p.password({
+          message: 'Confirme a senha do keystore:',
+          validate: () => undefined,
+        });
+        if (isCancel(c)) { p.cancel('Operação cancelada.'); return; }
+        if (v !== c) {
+          p.log.error('Senhas não coincidem. Tente novamente.');
+          continue;
+        }
+        storePasswordInput = v;
+        break;
+      }
     } else if (storePasswordInput.length < 6) {
       p.log.error('storePassword deve ter pelo menos 6 caracteres.');
       p.outro('Init cancelado.');
       return;
     }
 
-    // keyPassword
+    // keyPassword + confirmação (pula confirmação se reusar storePassword)
     if (!keyPasswordInput) {
-      const v = await p.password({
-        message: `Senha da chave (keyPassword) — Enter para usar a mesma do keystore:`,
-        validate: () => undefined,
-      });
-      if (isCancel(v)) { p.cancel('Operação cancelada.'); return; }
-      // se vazio, usa storePassword
-      keyPasswordInput = v && v.trim().length > 0 ? v : storePasswordInput;
+      for (;;) {
+        const v = await p.password({
+          message: `Senha da chave (keyPassword) — Enter para usar a mesma do keystore:`,
+          validate: (val) => {
+            if (val && val.length > 0 && val.length < 6) return 'Senha deve ter pelo menos 6 caracteres';
+            return undefined;
+          },
+        });
+        if (isCancel(v)) { p.cancel('Operação cancelada.'); return; }
+        // se vazio, usa storePassword (sem confirmação)
+        if (!v || v.trim().length === 0) {
+          keyPasswordInput = storePasswordInput;
+          break;
+        }
+        const c = await p.password({
+          message: 'Confirme a senha da chave:',
+          validate: () => undefined,
+        });
+        if (isCancel(c)) { p.cancel('Operação cancelada.'); return; }
+        if (v !== c) {
+          p.log.error('Senhas não coincidem. Tente novamente.');
+          continue;
+        }
+        keyPasswordInput = v;
+        break;
+      }
     }
 
     // dname
@@ -355,10 +386,43 @@ export async function init(opts = {}) {
     p.log.warn('Aplique manualmente o patch descrito no README.');
   }
 
+  // Auto-detecção do Android SDK -> android/local.properties (idempotente, sem prompt; funciona em --yes e interativo)
+  try {
+    const detected = findAndroidSdk(projectRoot);
+    if (detected && detected.source === 'local.properties') {
+      p.log.info(`Android SDK já configurado em android/local.properties (${detected.path})`);
+    } else if (detected) {
+      const sdkForward = String(detected.path).replace(/\\/g, '/');
+      const localPropsPath = path.join(androidDir, 'local.properties');
+      fs.mkdirSync(androidDir, { recursive: true });
+      // Preserva outras chaves existentes; troca apenas linhas sdk.dir= (arquivo válido já tratado acima)
+      let keptLines = [];
+      try {
+        if (fs.existsSync(localPropsPath)) {
+          const current = fs.readFileSync(localPropsPath, 'utf8');
+          keptLines = String(current)
+            .split(/\r?\n/)
+            .filter((l) => !/^\s*sdk\.dir\s*=/.test(l));
+          while (keptLines.length > 0 && !keptLines[keptLines.length - 1].trim()) keptLines.pop();
+        }
+      } catch {
+        keptLines = [];
+      }
+      const newContent = [...keptLines, `sdk.dir=${sdkForward}`].join('\n') + '\n';
+      fs.writeFileSync(localPropsPath, newContent, 'utf8');
+      p.log.success(`Android SDK detectado via ${detected.source}: ${detected.path} -> android/local.properties ✓`);
+    } else {
+      p.log.warn('Android SDK não encontrado. Instale o Android Studio + SDK ou defina ANDROID_HOME ou crie android/local.properties com sdk.dir=<caminho-do-sdk>.');
+    }
+  } catch (e) {
+    p.log.warn(`Não foi possível configurar android/local.properties: ${e?.message || e}`);
+  }
+
   // Patch .gitignore em android/ e na raiz
   const requiredGitignoreLines = ['*.jks', '*.keystore', 'keystore.properties'];
+  const requiredAndroidGitignoreLines = [...requiredGitignoreLines, 'local.properties'];
   try {
-    ensureGitignore(androidDir, requiredGitignoreLines);
+    ensureGitignore(androidDir, requiredAndroidGitignoreLines);
     p.log.success('android/.gitignore atualizado ✓');
   } catch (e) {
     p.log.warn(`Não foi possível atualizar android/.gitignore: ${e.message}`);

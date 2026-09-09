@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -261,4 +262,138 @@ export function getStoreFileForProperties(absolutePath, projectRoot) {
     return abs.replace(/\\/g, '/');
   }
   return relToAndroid.replace(/\\/g, '/');
+}
+
+/**
+ * Auto-detecta o Android SDK nesta ordem:
+ *  1. `android/local.properties` existente com `sdk.dir=` válido (pasta existe) -> source 'local.properties'
+ *  2. `process.env.ANDROID_HOME` se pasta existir -> source 'ANDROID_HOME'
+ *  3. `process.env.ANDROID_SDK_ROOT` se pasta existir -> source 'ANDROID_SDK_ROOT'
+ *  4. paths padrão por OS se existirem -> source 'default'
+ *     - win32: %LOCALAPPDATA%\Android\Sdk, C:\Android\Sdk
+ *     - linux: ~/Android/Sdk
+ *     - darwin: ~/Library/Android/sdk
+ * Retorna `{ path, source }` ou `null`. Nunca lança.
+ */
+export function findAndroidSdk(projectRoot) {
+  try {
+    const normalize = (p) => {
+      try {
+        return path.normalize(String(p).trim());
+      } catch {
+        return null;
+      }
+    };
+
+    const expandValue = (val, androidDir) => {
+      let v = String(val ?? '').trim();
+      if (!v) return null;
+      // remove aspas ao redor
+      if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+        v = v.slice(1, -1).trim();
+      }
+      if (!v) return null;
+      // desfaz escape do Gradle (C\: -> C:)
+      v = v.replace(/\\:/g, ':');
+      // expande ~ para home
+      if (v === '~' || v.startsWith('~/') || v.startsWith('~\\')) {
+        try {
+          v = path.join(os.homedir(), v.slice(2));
+        } catch {
+          return null;
+        }
+      }
+      if (!path.isAbsolute(v) && androidDir) {
+        v = path.resolve(androidDir, v);
+      }
+      return normalize(v);
+    };
+
+    // 1. android/local.properties
+    try {
+      if (projectRoot) {
+        const androidDir = path.join(String(projectRoot), 'android');
+        const localProps = path.join(androidDir, 'local.properties');
+        if (fileExists(localProps)) {
+          const raw = fs.readFileSync(localProps, 'utf8');
+          const lines = String(raw).split(/\r?\n/);
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t || t.startsWith('#') || t.startsWith('!')) continue;
+            const m = t.match(/^sdk\.dir\s*=\s*(.+?)\s*$/);
+            if (!m) continue;
+            const candidate = expandValue(m[1], androidDir);
+            if (candidate && dirExists(candidate)) {
+              return { path: candidate, source: 'local.properties' };
+            }
+            // sdk.dir presente mas inválido: continua procurando outra linha válida
+          }
+        }
+      }
+    } catch {
+      // ignora e segue para env/defaults
+    }
+
+    // 2. ANDROID_HOME
+    try {
+      const home = (process.env.ANDROID_HOME || '').trim();
+      if (home) {
+        const candidate = normalize(home);
+        if (candidate && dirExists(candidate)) {
+          return { path: candidate, source: 'ANDROID_HOME' };
+        }
+      }
+    } catch {
+      // ignora
+    }
+
+    // 3. ANDROID_SDK_ROOT
+    try {
+      const root = (process.env.ANDROID_SDK_ROOT || '').trim();
+      if (root) {
+        const candidate = normalize(root);
+        if (candidate && dirExists(candidate)) {
+          return { path: candidate, source: 'ANDROID_SDK_ROOT' };
+        }
+      }
+    } catch {
+      // ignora
+    }
+
+    // 4. paths padrão por OS
+    try {
+      const candidates = [];
+      const plat = process.platform;
+      if (plat === 'win32') {
+        const localAppData = (process.env.LOCALAPPDATA || '').trim();
+        if (localAppData) candidates.push(path.join(localAppData, 'Android', 'Sdk'));
+        candidates.push('C:\\Android\\Sdk');
+      } else if (plat === 'darwin') {
+        try {
+          candidates.push(path.join(os.homedir(), 'Library', 'Android', 'sdk'));
+        } catch {
+          // ignora
+        }
+      } else {
+        // linux e demais unix: ~/Android/Sdk
+        try {
+          candidates.push(path.join(os.homedir(), 'Android', 'Sdk'));
+        } catch {
+          // ignora
+        }
+      }
+      for (const c of candidates) {
+        const candidate = normalize(c);
+        if (candidate && dirExists(candidate)) {
+          return { path: candidate, source: 'default' };
+        }
+      }
+    } catch {
+      // ignora
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
