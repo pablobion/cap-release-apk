@@ -44,13 +44,14 @@ export function patchGradle(gradlePath) {
 
   let content = fs.readFileSync(resolved, 'utf8');
 
-  // Idempotência: se já contém os dois marcadores, não faz nada
-  if (content.includes('keystoreProperties') && content.includes('signingConfigs')) {
-    // verifica mais especificamente se já tem loader e signingConfigs release
-    if (content.includes("keystorePropertiesFile") && content.includes("storeFile file(keystoreProperties['storeFile']")) {
-      console.log('[cap-release-apk] build.gradle já patchado — nada a fazer.');
-      return { patched: false, reason: 'already-patched', path: resolved };
-    }
+  // Idempotência: se já contém o template atual, não faz nada
+  if (
+    content.includes('keystorePropertiesFile') &&
+    content.includes('signingConfigs') &&
+    content.includes('signingConfig signingConfigs.release')
+  ) {
+    console.log('[cap-release-apk] build.gradle já patchado — nada a fazer.');
+    return { patched: false, reason: 'already-patched', path: resolved };
   }
 
   // 1) Injetar loader de keystoreProperties antes de "android {"

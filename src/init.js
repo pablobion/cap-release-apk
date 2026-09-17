@@ -295,7 +295,11 @@ export async function init(opts = {}) {
   p.log.info(`Valor em keystore.properties: ${storeFileForProps}`);
 
   // Se arquivo não existe, oferecer geração via keytool (em --yes gera automaticamente sem perguntar)
+  // keystoreGenerated=false indica que as etapas seguintes (keystore.properties, patch, etc.)
+  // devem continuar mesmo se a geração falhar — o usuário gera manualmente depois.
+  let keystoreGenerated = fs.existsSync(storeFileAbs);
   if (!fs.existsSync(storeFileAbs)) {
+    keystoreGenerated = false;
     p.log.warn(`Keystore não encontrado em ${storeFileAbs}`);
     let shouldGen;
     if (isYes) {
@@ -337,25 +341,26 @@ export async function init(opts = {}) {
         p.log.info('No Windows: instale o Microsoft Build of OpenJDK ou Oracle JDK e adicione %JAVA_HOME%\\bin ao PATH.');
         p.log.info('No macOS: brew install openjdk@17');
         p.log.info('No Linux: sudo apt install openjdk-17-jdk');
-        p.outro('Init incompleto — keystore não gerado.');
-        return;
-      }
-
-      if (res.status !== 0) {
+        p.log.warn('Continuando init sem keystore — keystore.properties e patch do build.gradle serão criados mesmo assim.');
+        keystoreGenerated = false;
+      } else if (res.status !== 0) {
         spinner.stop('Falha ao gerar keystore');
         const out = (res.stdout || '') + (res.stderr || '');
         p.log.error(`keytool falhou (exit ${res.status}):\n${out}`);
-        p.outro('Init incompleto.');
-        return;
+        p.log.warn('Continuando init sem keystore — keystore.properties e patch do build.gradle serão criados mesmo assim.');
+        keystoreGenerated = false;
+      } else {
+        spinner.stop('Keystore gerado ✓');
+        p.log.success(`Keystore criado em ${storeFileAbs}`);
+        keystoreGenerated = true;
       }
-
-      spinner.stop('Keystore gerado ✓');
-      p.log.success(`Keystore criado em ${storeFileAbs}`);
     } else {
       p.log.warn('Keystore não gerado. Você precisará criá-lo manualmente antes de rodar cap-release-apk build.');
+      keystoreGenerated = false;
     }
   } else {
     p.log.success(`Keystore já existe: ${storeFileAbs}`);
+    keystoreGenerated = true;
   }
 
   // Criar android/keystore.properties
@@ -386,13 +391,11 @@ export async function init(opts = {}) {
     p.log.warn('Aplique manualmente o patch descrito no README.');
   }
 
-  // Auto-detecção do Android SDK -> android/local.properties (idempotente, sem prompt; funciona em --yes e interativo)
+  // Auto-detecção do Android SDK -> android/local.properties (idempotente; funciona em --yes e interativo)
   try {
     const detected = findAndroidSdk(projectRoot);
-    if (detected && detected.source === 'local.properties') {
-      p.log.info(`Android SDK já configurado em android/local.properties (${detected.path})`);
-    } else if (detected) {
-      const sdkForward = String(detected.path).replace(/\\/g, '/');
+    const writeLocalProperties = (sdkPath) => {
+      const sdkForward = String(sdkPath).replace(/\\/g, '/');
       const localPropsPath = path.join(androidDir, 'local.properties');
       fs.mkdirSync(androidDir, { recursive: true });
       // Preserva outras chaves existentes; troca apenas linhas sdk.dir= (arquivo válido já tratado acima)
@@ -410,9 +413,41 @@ export async function init(opts = {}) {
       }
       const newContent = [...keptLines, `sdk.dir=${sdkForward}`].join('\n') + '\n';
       fs.writeFileSync(localPropsPath, newContent, 'utf8');
+      return localPropsPath;
+    };
+    if (detected && detected.source === 'local.properties') {
+      p.log.info(`Android SDK já configurado em android/local.properties (${detected.path})`);
+    } else if (detected) {
+      const localPropsPath = writeLocalProperties(detected.path);
       p.log.success(`Android SDK detectado via ${detected.source}: ${detected.path} -> android/local.properties ✓`);
-    } else {
+    } else if (isYes) {
       p.log.warn('Android SDK não encontrado. Instale o Android Studio + SDK ou defina ANDROID_HOME ou crie android/local.properties com sdk.dir=<caminho-do-sdk>.');
+    } else {
+      const sdkInput = await p.text({
+        message: 'Caminho do Android SDK (sdk.dir) — Enter para pular:',
+        placeholder: 'Ex: C:\\Users\\Voce\\AppData\\Local\\Android\\Sdk',
+        initialValue: '',
+        validate: (val) => {
+          if (!val || !val.trim()) return undefined;
+          const dir = path.resolve(val.trim());
+          if (!fs.existsSync(dir)) return 'Pasta não existe — confira o caminho ou deixe vazio para pular';
+          try {
+            if (!fs.statSync(dir).isDirectory()) return 'Caminho não é uma pasta — confira ou deixe vazio para pular';
+          } catch {
+            return 'Caminho inválido — confira ou deixe vazio para pular';
+          }
+          return undefined;
+        },
+      });
+      if (isCancel(sdkInput)) { p.cancel('Operação cancelada.'); return; }
+      const trimmed = String(sdkInput || '').trim();
+      if (trimmed) {
+        const absSdk = path.resolve(trimmed);
+        writeLocalProperties(absSdk);
+        p.log.success(`Android SDK configurado em android/local.properties ✓ (${absSdk})`);
+      } else {
+        p.log.warn('Android SDK não encontrado. Instale o Android Studio + SDK ou defina ANDROID_HOME ou crie android/local.properties com sdk.dir=<caminho-do-sdk>.');
+      }
     }
   } catch (e) {
     p.log.warn(`Não foi possível configurar android/local.properties: ${e?.message || e}`);
@@ -464,8 +499,51 @@ export async function init(opts = {}) {
     p.log.warn(`Não foi possível atualizar package.json: ${e.message}`);
   }
 
+  // Verificação pós-init (estilo doctor, só logs — não muda exit code)
+  try {
+    const ksPropsFinal = path.join(androidDir, 'keystore.properties');
+    if (fs.existsSync(ksPropsFinal)) {
+      p.log.success('Verificação: android/keystore.properties encontrado ✓');
+    } else {
+      p.log.warn('Verificação: android/keystore.properties NÃO encontrado — rode o init novamente ou crie manualmente.');
+    }
+    const ksActual = findKeystoreFile(storeFileAbs);
+    if (ksActual && fs.existsSync(ksActual)) {
+      keystoreGenerated = true;
+      p.log.success(`Verificação: keystore encontrado ✓ (${ksActual})`);
+    } else {
+      p.log.warn(`Verificação: keystore NÃO encontrado em ${storeFileAbs} — gere com keytool antes do build.`);
+    }
+    try {
+      const gradleFinal = path.join(androidDir, 'app', 'build.gradle');
+      if (fs.existsSync(gradleFinal)) {
+        const gContent = fs.readFileSync(gradleFinal, 'utf8');
+        if (gContent.includes('keystoreProperties') && gContent.includes('signingConfigs') && gContent.includes('signingConfig signingConfigs.release')) {
+          p.log.success('Verificação: android/app/build.gradle com signingConfigs ✓');
+        } else {
+          p.log.warn('Verificação: android/app/build.gradle SEM signingConfigs/keystoreProperties — aplique o patch manualmente (ver README).');
+        }
+      } else {
+        p.log.warn('Verificação: android/app/build.gradle não encontrado — rode "npx cap add android".');
+      }
+    } catch {
+      p.log.warn('Verificação: não foi possível ler android/app/build.gradle.');
+    }
+    const sdkFinal = findAndroidSdk(projectRoot);
+    if (sdkFinal) {
+      p.log.success(`Verificação: Android SDK configurado ✓ (${sdkFinal.path} via ${sdkFinal.source})`);
+    } else {
+      p.log.warn('Verificação: Android SDK não configurado — instale o Android Studio + SDK ou defina ANDROID_HOME ou crie android/local.properties com sdk.dir=<caminho-do-sdk>.');
+    }
+  } catch (e) {
+    p.log.warn(`Verificação pós-init indisponível: ${e?.message || e}`);
+  }
+
+  const keystoreMissing = !keystoreGenerated && !fs.existsSync(storeFileAbs);
   p.note(
-    `1. Confira android/keystore.properties\n2. Rode: npm run apk  ou  npm run aab  (ou  npx cap-release-apk build [--aab])\n3. APK em: android/app/build/outputs/apk/release/app-release.apk + cap-apk-outputs/\n4. AAB em: android/app/build/outputs/bundle/release/app-release.aab + cap-apk-outputs/`,
+    keystoreMissing
+      ? `1. Confira android/keystore.properties\n2. Gere o keystore manualmente:\n   keytool -genkeypair -v -keystore "${storeFileAbs}" -alias ${keyAlias} -keyalg RSA -keysize 2048 -validity ${validity} -storepass <senha> -keypass <senha> -dname "${dname}"\n3. Rode: npm run apk  ou  npm run aab  (ou  npx cap-release-apk build [--aab])\n4. APK em: android/app/build/outputs/apk/release/app-release.apk + cap-apk-outputs/\n5. AAB em: android/app/build/outputs/bundle/release/app-release.aab + cap-apk-outputs/`
+      : `1. Confira android/keystore.properties\n2. Rode: npm run apk  ou  npm run aab  (ou  npx cap-release-apk build [--aab])\n3. APK em: android/app/build/outputs/apk/release/app-release.apk + cap-apk-outputs/\n4. AAB em: android/app/build/outputs/bundle/release/app-release.aab + cap-apk-outputs/`,
     'Próximos passos'
   );
 
