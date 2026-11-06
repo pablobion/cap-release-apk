@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as p from '@clack/prompts';
-import { findProjectRoot, fileExists, detectBuildScript, findKeystoreFile, getKeystoreFallbackPaths, getStoreFileForProperties } from './utils.js';
+import { findProjectRoot, fileExists, findKeystoreFile, getKeystoreFallbackPaths, getStoreFileForProperties } from './utils.js';
 
 function formatMB(bytes) {
   return (bytes / 1024 / 1024).toFixed(2);
@@ -146,27 +146,7 @@ export async function build(opts = {}) {
     p.log.info(`Java: ${firstLine}`);
   }
 
-  // 2) npm run build
-  if (detectBuildScript(projectRoot)) {
-    s.start('Rodando npm run build...');
-    const res = spawnSync('npm', ['run', 'build'], {
-      cwd: projectRoot,
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-    });
-    if (res.status !== 0) {
-      s.stop('npm run build falhou');
-      p.log.error('Falha no "npm run build". Corrija os erros acima.');
-      p.outro('Build cancelado.');
-      process.exitCode = res.status || 1;
-      return;
-    }
-    s.stop('npm run build concluído ✓');
-  } else {
-    p.log.warn('Nenhum script "build" encontrado em package.json — pulando etapa de build web.');
-  }
-
-  // 3) npx cap sync android
+  // 2) npx cap sync android (o build web é responsabilidade do projeto — rode `npm run build` ou equivalente antes)
   s.start('Sincronizando Capacitor (npx cap sync android)...');
   let syncRes = spawnSync('npx', ['cap', 'sync', 'android'], {
     cwd: projectRoot,
@@ -190,7 +170,7 @@ export async function build(opts = {}) {
   }
   s.stop('Capacitor sync concluído ✓');
 
-  // 4) gradlew tasks
+  // 3) gradlew tasks
   const taskDisplay = gradleTasks.join(' ');
   s.start(`Gerando ${artifactLabel} (${taskDisplay}) — isso pode levar alguns minutos...`);
 
@@ -289,7 +269,7 @@ export async function build(opts = {}) {
   }
   s.stop(`Gradle ${taskDisplay} concluído ✓`);
 
-  // 5) Localiza e copia artefato
+  // 4) Localiza e copia artefato
   const srcPath = path.join(androidDir, expectedRel);
   if (!fileExists(srcPath)) {
     p.log.error(`${artifactLabel} não encontrado em ${srcPath}`);

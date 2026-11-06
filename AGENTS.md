@@ -7,7 +7,7 @@ Guia para agentes de IA e contribuidores que alteram este repositório.
 `cap-release-apk` (CapReleaseAPK) é um **CLI devDependency** para projetos Capacitor (Android) que automatiza a geração de **APK e AAB assinados**:
 
 - `npx cap-release-apk init` — coleta dados de assinatura (prompts interativos), gera keystore via `keytool`, cria `android/keystore.properties` + `.example`, aplica patch idempotente em `android/app/build.gradle`, atualiza `.gitignore` e injeta `scripts.apk` (`cap-release-apk build`) e `scripts.aab` (`cap-release-apk build --aab`) no `package.json` host.
-- `npx cap-release-apk build [--aab|--bundle] [--debug] [--verbose]` — valida ambiente, roda `npm run build` (se existir) → `npx cap sync android` → `gradlew assembleRelease` (APK → `cap-apk-outputs/`) ou `gradlew bundleRelease` com `--aab`/`--bundle` (AAB → `cap-apk-outputs/`) (`gradlew.bat` no Windows).
+- `npx cap-release-apk build [--aab|--bundle] [--debug] [--verbose]` — valida ambiente, roda `npx cap sync android` → `gradlew assembleRelease` (APK → `cap-apk-outputs/`) ou `gradlew bundleRelease` com `--aab`/`--bundle` (AAB → `cap-apk-outputs/`) (`gradlew.bat` no Windows). O build web é responsabilidade do projeto (rode `npm run build` ou equivalente antes).
 - `npx cap-release-apk doctor` — verifica Node, Java/keytool, Android SDK, `android/`/`gradlew`, `capacitor.config.*`, `keystore.properties` e `signingConfigs`.
 
 Fluxo de entrada: `bin/apk.js` (commander) dispatcha para `src/init.js`, `src/build.js`, `src/doctor.js`. Helpers em `src/utils.js` e patch em `src/patch-gradle.js`.
@@ -63,10 +63,9 @@ Exemplos são portáveis (`npm`, `npx`). Diferença principal Windows/Linux/macO
 ### `build` (`src/build.js`)
 1. Checks rápidos (`android/`, `gradlew`, `keystore.properties` em release, `build.gradle`, `java -version`).
 2. Auto-corrige `storeFile` em `keystore.properties` se arquivo real diverge (via `findKeystoreFile`).
-3. `npm run build` se `scripts.build` existir; senão avisa e pula.
-4. `npx cap sync android` (fallback `npx cap sync`) com `shell` no Windows.
-5. `gradlew assembleRelease` (ou `assembleDebug` com `--debug`) ou `gradlew bundleRelease` (ou `bundleDebug` com `--debug`) com `--aab`/`--bundle`, com `timeout 300_000`, `maxBuffer 10MB`; `--verbose` adiciona `--info` e mostra mais saída.
-6. Localiza APK em `android/app/build/outputs/apk/{release,debug}/` e copia para `cap-apk-outputs/`, ou AAB em `android/app/build/outputs/bundle/{release,debug}/` e copia para `cap-apk-outputs/`.
+3. `npx cap sync android` (fallback `npx cap sync`) com `shell` no Windows. O build web (`npm run build` ou equivalente) é feito antes pelo projeto, não pelo CLI.
+4. `gradlew assembleRelease` (ou `assembleDebug` com `--debug`) ou `gradlew bundleRelease` (ou `bundleDebug` com `--debug`) com `--aab`/`--bundle`, com `timeout 300_000`, `maxBuffer 10MB`; `--verbose` adiciona `--info` e mostra mais saída.
+5. Localiza APK em `android/app/build/outputs/apk/{release,debug}/` e copia para `cap-apk-outputs/`, ou AAB em `android/app/build/outputs/bundle/{release,debug}/` e copia para `cap-apk-outputs/`.
 
 ### `doctor` (`src/doctor.js`)
 Checa Node ≥18, `java -version` (major ≥17), `keytool -help`, `ANDROID_HOME`/`ANDROID_SDK_ROOT` ou `sdk.dir` em `android/local.properties`, `android/`, `gradlew`, `capacitor.config.*`, `keystore.properties` (campos + existência do keystore com fallback), `build.gradle` (`signingConfigs` + `keystoreProperties`). Retorna `0`/`1`.

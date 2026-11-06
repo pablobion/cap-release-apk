@@ -6,7 +6,7 @@ CLI para generar **APK y AAB firmados** en proyectos Capacitor con un solo coman
 
 ```bash
 npx cap-release-apk init   # configura el keystore y parchea Gradle (interactivo)
-npx cap-release-apk build  # npm run build + cap sync + gradlew assembleRelease
+npx cap-release-apk build  # cap sync + gradlew assembleRelease (haz el build web antes)
 npm run apk                # = cap-release-apk build (APK en cap-apk-outputs/)
 npm run aab                # = cap-release-apk build --aab (AAB en cap-apk-outputs/)
 ```
@@ -23,7 +23,7 @@ Automatiza el flujo manual de firma:
 4. Aplica un parche idempotente en `android/app/build.gradle` para `signingConfigs.release`
 5. Actualiza `.gitignore` (raíz y `android/`) con `*.jks`, `*.keystore`, `keystore.properties`
 6. Agrega `scripts.apk = "cap-release-apk build"` y `scripts.aab = "cap-release-apk build --aab"` al `package.json` del proyecto host
-7. En `build`, ejecuta `npm run build` (si existe) → `npx cap sync android` → `gradlew assembleRelease` (APK → `cap-apk-outputs/`) o `gradlew bundleRelease` con `--aab`/`--bundle` (AAB → `cap-apk-outputs/`)
+7. En `build`, ejecuta `npx cap sync android` → `gradlew assembleRelease` (APK → `cap-apk-outputs/`) o `gradlew bundleRelease` con `--aab`/`--bundle` (AAB → `cap-apk-outputs/`) — el build web debe hacerse antes en el proyecto (ej.: `npm run build`)
 
 En el primer uso hace preguntas interactivas (`@clack/prompts`); después, un solo comando regenera el APK o AAB.
 
@@ -125,10 +125,9 @@ npm run aab -- --verbose
 Pasos:
 
 1. Verificaciones (`java`, `keystore.properties`, `gradlew`, `build.gradle`)
-2. `npm run build` (si existe `scripts.build`)
-3. `npx cap sync android` (fallback `npx cap sync`)
-4. `gradlew assembleRelease` o `gradlew bundleRelease` con `--aab` (`gradlew.bat` en Windows) con timeout de 300s
-5. Localiza `android/app/build/outputs/apk/release/app-release.apk` (o `debug/app-debug.apk`) o `android/app/build/outputs/bundle/release/app-release.aab` (o `debug/app-debug.aab`), muestra tamaño y copia a `cap-apk-outputs/`
+2. `npx cap sync android` (fallback `npx cap sync`)
+3. `gradlew assembleRelease` o `gradlew bundleRelease` con `--aab` (`gradlew.bat` en Windows) con timeout de 300s
+4. Localiza `android/app/build/outputs/apk/release/app-release.apk` (o `debug/app-debug.apk`) o `android/app/build/outputs/bundle/release/app-release.aab` (o `debug/app-debug.aab`), muestra tamaño y copia a `cap-apk-outputs/`
 
 ### 3. Diagnóstico — `npx cap-release-apk doctor`
 
