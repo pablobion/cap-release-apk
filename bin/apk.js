@@ -37,6 +37,7 @@ program
   .option('--bundle', 'alias de --aab: gera AAB assinado (bundleRelease) em vez de APK')
   .option('--debug', 'gera APK/AAB debug (assembleDebug/bundleDebug); não exige keystore')
   .option('--verbose', 'mostra saída completa do Gradle (útil para debug)')
+  .option('--clean', 'executa gradlew clean antes do build (mais lento, mais determinístico)')
   .action(async (opts) => {
     try {
       await build(opts);

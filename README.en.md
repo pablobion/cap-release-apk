@@ -112,21 +112,23 @@ npx cap-release-apk build --aab    # release → bundleRelease (requires keystor
 npx cap-release-apk build --debug  # debug → assembleDebug (no keystore required)
 npx cap-release-apk build --aab --debug # debug → bundleDebug (no keystore required)
 npx cap-release-apk build --verbose # full Gradle output
-
+npx cap-release-apk build --clean   # runs gradlew clean before building
 # via scripts added by init (pass flags with --)
 npm run apk
 npm run apk -- --debug
 npm run apk -- --verbose
+npm run apk -- --clean
 npm run aab
 npm run aab -- --debug
 npm run aab -- --verbose
+npm run aab -- --clean
 ```
 
 Steps:
 
 1. Checks (`java`, `keystore.properties`, `gradlew`, `build.gradle`)
 2. `npx cap sync android` (fallback `npx cap sync`)
-3. `gradlew assembleRelease` or `gradlew bundleRelease` with `--aab` (`gradlew.bat` on Windows) with 300s timeout
+3. `gradlew assembleRelease` or `gradlew bundleRelease` with `--aab` (`gradlew.bat` on Windows) with 300s timeout; `--clean` runs `gradlew clean` first; auto-recovery on incremental-state failure (package-aware-r.txt)
 4. Locates `android/app/build/outputs/apk/release/app-release.apk` (or `debug/app-debug.apk`) or `android/app/build/outputs/bundle/release/app-release.aab` (or `debug/app-debug.aab`), prints size and copies to `cap-apk-outputs/`
 
 ### 3. Diagnostics — `npx cap-release-apk doctor`

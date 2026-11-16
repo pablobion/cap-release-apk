@@ -24,6 +24,7 @@ function combinedOutput(res) {
 export async function build(opts = {}) {
   const debug = Boolean(opts.debug);
   const verbose = Boolean(opts.verbose);
+  const clean = Boolean(opts.clean);
   const isAab = Boolean(opts.aab || opts.bundle);
 
   const modeLabel = isAab ? (debug ? 'debug (AAB)' : 'release (AAB)') : (debug ? 'debug (APK)' : 'release (APK)');
@@ -194,7 +195,7 @@ export async function build(opts = {}) {
   if (verbose) gradleArgs.push('--info');
   const gradleCmdDisplay = `${gradlewName} ${gradleArgs.join(' ')}`;
 
-  const gradleRes = spawnSync(gradlewPath, gradleArgs, {
+  const runGradle = () => spawnSync(gradlewPath, gradleArgs, {
     cwd: androidDir,
     stdio: 'pipe',
     encoding: 'utf8',
@@ -202,6 +203,65 @@ export async function build(opts = {}) {
     timeout: 300_000,
     maxBuffer: 10 * 1024 * 1024,
   });
+
+  // --clean opcional: limpa antes de buildar (determinístico, mais lento)
+  if (clean) {
+    s.stop('Limpando build anterior (gradlew clean)...');
+    p.log.info('Modo --clean: executando gradlew clean antes do build.');
+    try {
+      const cleanRes = spawnSync(gradlewPath, ['clean'], {
+        cwd: androidDir,
+        stdio: 'pipe',
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+        timeout: 300_000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      if (cleanRes.status !== 0) {
+        p.log.warn(`gradlew clean falhou (exit ${cleanRes.status}) — continuando mesmo assim.`);
+      } else {
+        p.log.success('Clean concluído ✓');
+      }
+    } catch (e) {
+      p.log.warn(`Falha ao executar gradlew clean: ${e?.message || e}`);
+    }
+    s.start(`Gerando ${artifactLabel} (${taskDisplay}) — isso pode levar alguns minutos...`);
+  }
+
+  let gradleRes = runGradle();
+
+  // Auto-recuperação: erro de estado incremental do AGP 8 (package-aware-r.txt /
+  // symbol_list_with_package_name / NoSuchFileException) em módulos vazios como
+  // capacitor-cordova-android-plugins. Limpa (gradlew clean) e tenta uma vez.
+  const firstOutput = combinedOutput(gradleRes);
+  const isStaleIncremental =
+    (gradleRes.error || gradleRes.status !== 0) &&
+    (/package-aware-r\.txt/i.test(firstOutput) || /symbol_list_with_package_name/i.test(firstOutput));
+
+  if (isStaleIncremental) {
+    s.stop('Gradle falhou por estado incremental — limpando e tentando novamente...');
+    p.log.warn('Detectado erro de estado incremental do Gradle (package-aware-r.txt / symbol_list_with_package_name).');
+    p.log.warn('Executando gradlew clean e tentando o build novamente (auto-recuperação).');
+    try {
+      const cleanRes = spawnSync(gradlewPath, ['clean'], {
+        cwd: androidDir,
+        stdio: 'pipe',
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+        timeout: 300_000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      if (cleanRes.status !== 0) {
+        p.log.warn(`gradlew clean falhou (exit ${cleanRes.status}) — tentando rebuild mesmo assim.`);
+      } else {
+        p.log.success('Clean concluído ✓');
+      }
+    } catch (e) {
+      p.log.warn(`Falha ao executar gradlew clean: ${e?.message || e}`);
+    }
+    s.start(`Gerando ${artifactLabel} (${taskDisplay}) novamente após clean...`);
+    gradleRes = runGradle();
+  }
 
   if (gradleRes.error || gradleRes.status !== 0) {
     s.stop(`Gradle ${taskDisplay} falhou`);
@@ -248,6 +308,7 @@ export async function build(opts = {}) {
     p.log.warn('  • Java: java -version deve ser JDK 17+ (Gradle 8 + AGP 8). Atual: ' + (javaOut ? javaOut.trim().split('\n')[0] : 'desconhecido'));
     p.log.warn('  • wrapper: verifique android/gradle/wrapper/gradle-wrapper.properties (distributionUrl) — tente atualizar wrapper');
     p.log.warn('  • lock/artefato: tente .\\gradlew.bat clean  em android/ e feche APK aberto no Explorer/antivírus');
+    p.log.warn('  • estado incremental (package-aware-r.txt / symbol_list_with_package_name): rode .\\gradlew.bat clean e rebuild; ou use npx cap-release-apk build --clean');
     p.log.warn(`  • rerun verboso: .\\gradlew.bat ${taskDisplay} --stacktrace --info > gradle.log 2>&1`);
     if (!verbose) p.log.info('Dica: rode novamente com --verbose para saída completa: npx cap-release-apk build --verbose');
 
